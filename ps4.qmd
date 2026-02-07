@@ -1,0 +1,402 @@
+---
+title: "Data Visualization PSET 4"
+author: "Roshni Vora"
+date: "February 7"
+format: 
+  pdf:
+    include-in-header: 
+       text: |
+         \usepackage{fvextra}
+         \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+include-before-body:
+  text: |
+    \RecustomVerbatimEnvironment{verbatim}{Verbatim}{
+      showspaces = false,
+      showtabs = false,
+      breaksymbolleft={},
+      breaklines
+    }
+output:
+  echo: false
+  eval: false
+---
+
+**Due 02/07 at 5:00PM Central.**
+
+"This submission is my work alone and complies with the 30538 integrity policy." Add your initials to indicate your agreement: \*\*\_\_\*\*
+
+### Github Classroom Assignment Setup and Submission Instructions
+
+1.  **Accepting and Setting up the PS4 Assignment Repository**
+    -   Each student must individually accept the repository for the problem set from Github Classroom ("ps4") -- <https://classroom.github.com/a/hWhtcHqH>
+        -   You will be prompted to select your cnetid from the list in order to link your Github account to your cnetid.
+        -   If you can't find your cnetid in the link above, click "continue to next step" and accept the assignment, then add your name, cnetid, and Github account to this Google Sheet and we will manually link it: <https://rb.gy/9u7fb6>
+    -   If you authenticated and linked your Github account to your device, you should be able to clone your PS4 assignment repository locally.
+    -   Contents of PS4 assignment repository:
+        -   `ps4_template.qmd`: this is the Quarto file with the template for the problem set. You will write your answers to the problem set here.
+2.  **Submission Process**:
+    -   Knit your completed solution `ps4.qmd` as a pdf `ps4.pdf`.
+        -   Your submission does not need runnable code. Instead, you will tell us either what code you ran or what output you got.
+    -   To submit, push `ps4.qmd` and `ps4.pdf` to your PS4 assignment repository. Confirm on Github.com that your work was successfully pushed.
+
+### Grading
+- You will be graded on what was last pushed to your PS4 assignment repository before the assignment deadline
+- Problem sets will be graded for completion as: {missing (0%); ✓- (incomplete, 50%); ✓+ (excellent, 100%)}
+    - The percent values assigned to each problem denote how long we estimate the problem will take as a share of total time spent on the problem set, not the points they are associated with.
+- In order for your submission to be considered complete, you need to push both your `ps4.qmd` and `ps4.pdf` to your repository. Submissions that do not include both files will automatically receive 50% credit.
+
+
+\newpage
+
+```{python}
+import pandas as pd
+import altair as alt 
+import time
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import datetime as dt
+
+
+import warnings 
+warnings.filterwarnings('ignore')
+alt.renderers.enable("png")
+```
+
+
+## Step 1: Develop initial scraper and crawler
+
+
+```{python}
+url = "https://oig.hhs.gov/fraud/enforcement/"
+
+response = requests.get(url)
+response.raise_for_status() 
+
+text = response.text
+```
+
+
+```{python}
+soup = BeautifulSoup(text, 'lxml')
+```
+
+```{python}
+soup.find_all('<li>')
+
+```
+
+```{python}
+lis = soup.find_all("li", class_='usa-card card--list pep-card--minimal mobile:grid-col-12')
+print(len(lis))
+```
+
+
+
+
+```{python}
+for i, li in enumerate(lis):
+    a_tag = li.find("a")
+    print(a_tag.get_text(strip=True))
+    print("https://oig.hhs.gov" + a_tag.get('href'))
+    if i  == 3:
+      break
+
+```
+
+```{python}
+rows = []
+
+for li in lis:
+    a_tag = li.find("a")
+    if a_tag is None:
+        continue
+
+    title = a_tag.get_text(strip=True)
+    link = a_tag.get("href", "")
+    if link.startswith("/"):
+        link = "https://oig.hhs.gov" + link
+
+    span = li.find("span")
+    date = span.get_text(strip=True) if span else ""
+
+    ul = li.find("ul")
+    if ul:
+        categories = [c.get_text(strip=True) for c in ul.find_all("li")]
+        category = ", ".join(categories)
+    else:
+        category = ""
+
+    rows.append({
+        "title": title,
+        "date": date,
+        "category": category,
+        "link": link
+    })
+
+rows
+```
+
+
+```{python}
+df_page1= pd.DataFrame(rows)
+df_page1
+```
+
+## Step 2: Making the scraper dynamic
+
+### 1. Turning the scraper into a function 
+
+* a. Pseudo-Code
+FUNCTION (year, month, run_scraper)
+if run_scraper == False:
+  LOAD enforcement_actions_startyear_startmonth.csv
+  RETURN dataframe
+
+IF start_year < 13:
+  print "please enter a year after 2013"
+  break
+
+IF start_year >= 2013
+  run_scraper should loop:
+  title
+  date
+  url 
+  category
+  put into csv
+
+break when csv stops compiling data
+
+For this loop we will be using a nested loop with a while loop that will keep compiling data into the csv until there is no more data to put in the csv meaning the scraper is on the last page 
+* b. Create Dynamic Scraper
+
+
+In my final dataframe i got 3377 observations. the earliest date it scraped is 
+
+
+
+
+
+```{python}
+
+BASE = "https://oig.hhs.gov"
+START_URL = "https://oig.hhs.gov/fraud/enforcement/"
+
+def scrape_enforcement_actions(start_year, start_month, run_scraper=True):
+    out_csv = f"enforcement_actions_{start_year}_{start_month:02d}.csv"
+
+    if not run_scraper:
+        return pd.read_csv(out_csv)
+
+    if start_year < 2013:
+        print("Please enter a year >= 2013 (only enforcement actions after 2013 are listed).")
+        return None
+
+    cutoff = dt.date(start_year, start_month, 1)
+    rows = []
+    page = 1
+    stop = False
+
+    while not stop:
+        url = f"{START_URL}?page={page}"
+        response = requests.get(url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "lxml")
+
+        action_links = soup.select('h2 a[href^="/fraud/enforcement/"]')
+
+        if len(action_links) == 0:
+            break
+
+        for a in action_links:
+            title = a.get_text(strip=True)
+            href = a.get("href", "")
+            if not title or href == "/fraud/enforcement/":
+                continue
+
+            link = BASE + href
+            li = a.find_parent("li")
+
+            lines = [t.strip() for t in li.get_text("\n", strip=True).split("\n") if t.strip()] if li else []
+            date_str = lines[1] if len(lines) > 1 else ""
+
+            parsed = None
+            for fmt in ("%B %d, %Y", "%b %d, %Y"):
+                try:
+                    parsed = dt.datetime.strptime(date_str, fmt).date()
+                    break
+                except ValueError:
+                    pass
+
+            if parsed and parsed < cutoff:
+                stop = True
+                break
+
+            category = ""
+            if li:
+                ul = li.find("ul")
+                if ul:
+                    categories = [c.get_text(strip=True) for c in ul.find_all("li")]
+                    category = ", ".join(categories)
+
+            rows.append({
+                "title": title,
+                "date": date_str,
+                "category": category,
+                "link": link
+            })
+
+        if not stop:
+            time.sleep(1)
+            page += 1
+
+    df = pd.DataFrame(rows).drop_duplicates(subset=["title", "date", "link"]).reset_index(drop=True)
+    df.to_csv(out_csv, index=False)
+    return df
+```
+
+
+
+
+* c. Test Your Code
+
+
+#RUN_SCRAPER = True
+#df_all = scrape_enforcement_actions(2022, 1, run_scraper=RUN_SCRAPER)
+
+#df_all.shape
+#df_all.head()
+#df_all.tail()
+
+
+```{python}
+RUN_SCRAPER = False
+df_2024 = scrape_enforcement_actions(2024, 1, run_scraper=RUN_SCRAPER)
+```
+
+```{python}
+earliest_date = df_2024['date'].min()
+earliest_date
+```
+
+the earliest date is april 1 2024
+
+## Step 3: Plot data based on scraped data
+
+### 1. Plot the number of enforcement actions over time
+
+```{python}
+df_all = df = pd.read_csv("enforcement_actions_2022_01.csv")
+```
+```{python}
+enforcement_over_time = (
+    alt.Chart(df_all)
+    .mark_line(point=True)
+    .encode(
+        x=alt.X('yearmonth(date):T', title='Time'),
+        y=alt.Y('count():Q', title='Number of Enforcement Actions')
+    )
+)
+
+enforcement_over_time
+```
+
+### 2. Plot the number of enforcement actions categorized:
+
+* based on "Criminal and Civil Actions" vs. "State Enforcement Agencies"
+
+```{python}
+df_split = df_all[df_all['category'].isin([
+    'Criminal and Civil Actions',
+    'State Enforcement Agencies'
+])]
+
+```
+
+```{python}
+split_enforcement_over_time = (
+    alt.Chart(df_split)
+    .mark_line(point=True)
+    .encode(
+        x=alt.X('yearmonth(date):T', title='Time'),
+        y=alt.Y('count():Q', title='Number of Enforcement Actions')
+    )
+)
+
+split_enforcement_over_time
+```
+
+* based on five topics
+
+```{python}
+health_care_keywords = [
+    "medicare", "medicaid", "health care", "healthcare", "physician", "doctor",
+    "clinic", "hospital", "nursing", "home health", "billing", "claims"
+]
+
+financial_fraud_keywords = [
+    "bank", "financial", "loan", "mortgage", "wire fraud", "securities",
+    "money laundering", "launder", "tax fraud", "insurance fraud", "investment"
+]
+
+drug_enforcement_keywords = [
+    "drug", "opioid", "fentanyl", "controlled substance", "prescription",
+    "pharmacy", "dea", "traffick", "distribution"
+]
+
+bribery_corruption_keywords = [
+    "bribe", "bribery", "corrupt", "kickback", "anti-kickback",
+    "embezzl", "extort", "payoff", "conspiracy"
+]
+```
+
+
+```{python}
+df_cca = df_all[
+    df_all['category'].str.contains('Criminal and Civil Actions', na=False)
+].copy()
+
+df_cca['date'] = pd.to_datetime(df_cca['date'], errors='coerce')
+titles = df_cca['title'].str.lower()
+```
+
+
+```{python}
+df_cca['topic'] = 'Other'  # default
+
+df_cca.loc[
+    titles.str.contains('|'.join(health_care_keywords), regex=True),
+    'topic'
+] = 'Health Care Fraud'
+
+df_cca.loc[
+    titles.str.contains('|'.join(financial_fraud_keywords), regex=True),
+    'topic'
+] = 'Financial Fraud'
+
+df_cca.loc[
+    titles.str.contains('|'.join(drug_enforcement_keywords), regex=True),
+    'topic'
+] = 'Drug Enforcement'
+
+df_cca.loc[
+    titles.str.contains('|'.join(bribery_corruption_keywords), regex=True),
+    'topic'
+] = 'Bribery/Corruption'
+```
+
+
+```{python}
+topic_chart = (
+    alt.Chart(df_cca)
+    .mark_line()
+    .encode(
+        x=alt.X('yearmonth(date):T', title='Time'),
+        y=alt.Y('count():Q', title='Number of Enforcement Actions'),
+        color=alt.Color('topic:N', title='Topic')
+    )
+    .properties(title='Criminal and Civil Enforcement Actions by Topic Over Time')
+)
+
+topic_chart
+```
